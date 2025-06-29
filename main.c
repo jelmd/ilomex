@@ -8,7 +8,7 @@
  *
  * Copyright 2025 Jens Elkner (jel+ilomex-src@cs.ovgu.de)
  */
-
+#include <stdio.h>
 #include <getopt.h>
 #include <errno.h>
 #include <arpa/inet.h>
@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <ctype.h>
 
 #include <prom.h>
 #include <microhttpd.h>
@@ -45,6 +46,7 @@ static struct option options[] = {
 	{"daemon",				no_argument,		NULL, 'd'},
 	{"foreground",			no_argument,		NULL, 'f'},
 	{"help",				no_argument,		NULL, 'h'},
+	{"iloms",				required_argument,	NULL, 'i'},
 	{"logfile",				required_argument,	NULL, 'l'},
 	{"no-metrics",			required_argument,	NULL, 'n'},
 	{"port",				required_argument,	NULL, 'p'},
@@ -54,8 +56,14 @@ static struct option options[] = {
 };
 
 static const char *shortUsage = {
-	"[-LSVcdfh] [-l file] [-n list] [-s ip] [-p port] [-v DEBUG|INFO|WARN|ERROR|FATAL]"
+	"[-LSVcdfh] [-l file] [-n list] [-s ip] [-p port] [-i file]"
+	"[-v DEBUG|INFO|WARN|ERROR|FATAL]"
 };
+
+typedef struct node_cfg {
+	bool no_node;
+	target_t *ilom;
+} node_cfg_t;
 
 static struct {
 	prom_counter_t *req_counter;
@@ -78,14 +86,193 @@ static struct {
 	.logfile = NULL,
 	.MHD_error = -1,
 	.promflags = PROM_PROCESS | PROM_SCRAPETIME | PROM_SCRAPETIME_ALL,
-	.port = 9100,
+	.port = 9300,
 	.versionInfo = true,
 	.verbose = 0,
 	.ipv6 = false,
 	.ncfg = {
 		.no_node = false,
+		.ilom = NULL,
 	}
 };
+
+#define MAXARG_LEN 64
+#define INITIAL_BODY_CAPACITY 8 * 1024
+
+static int
+parse_ilom_opts(const char *file) {
+	size_t len;
+	ssize_t read;
+	char *line = NULL, *pw = NULL, *login = NULL;
+	target_flag_t flag = TARGET_HTTP;
+	target_t *last = NULL;
+	int res = 0, ln = 0;
+	uint32_t port = 0, timeout = 10;
+	bool verbose = false;
+
+	if (!file || strlen(file) == 0)
+		return 0;
+
+	FILE *f = fopen(file, "r");
+	if (f == NULL) {
+		fprintf(stderr, "ERROR: Unable to open file '%s': %s\n",
+			file, strerror(errno));
+		return -1;
+	}
+	while ((read = getline(&line, &len, f)) != -1) {
+		ln++;
+		char *key = line, *del, *s, *val;
+		while (key[0] != '\0' && isspace(key[0]))
+			key++;
+		if (key[0] == '\0' || key[0]== '#')
+			continue;
+		if ((del = strchr(key, ':')) == NULL) {
+			res++;
+			fprintf(stderr, "Invalid line %d\n", ln);
+			continue;
+		}
+		del[0] = '\0';
+		s = del - 1;
+		while (s >= key && isspace(*s)) {
+			s[0] = '\0';
+			s--;
+		}
+		s = del + 1;
+		while (s < line + len && isspace(s[0]))
+			s++;
+		val = s;
+		for (s=line + read - 1; s > del; s--) {
+			if (isspace(s[0]))
+				s[0] = '\0';
+			else
+				break;
+		}
+		if (strcmp(key, "host") == 0) {
+			if (val[0] == '\0') {
+				fprintf(stderr, "ERROR %s:%d: empty hostname\n", file, ln);
+				res++;
+				continue;
+			}
+			target_t *ilom = global.ncfg.ilom;
+			while (ilom) {
+				if (strcmp(ilom->host, val) == 0)
+					break;
+				ilom = ilom->next;
+			}
+			if (ilom == NULL) {
+				ilom = calloc(1, sizeof(target_t));
+				ilom->host = strdup(val);
+				if (last) {
+					last->next = ilom;
+				} else {
+					global.ncfg.ilom = ilom;
+				}
+				last = ilom;
+				ilom->body = malloc(sizeof(char) * INITIAL_BODY_CAPACITY);
+				ilom->body_capacity = INITIAL_BODY_CAPACITY;
+			}
+			ilom->flags = flag;
+			free(ilom->pw);
+			if (pw)
+				ilom->pw = strdup(pw);
+			free(ilom->login);
+			if (login)
+				ilom->login = strdup(login);
+			ilom->port = port;
+			ilom->timeout_s = timeout;
+			ilom->verbose = verbose;
+		} else if (strcmp(key, "proto") == 0) {
+			if (strcmp(val, "http") == 0) {
+				flag = TARGET_HTTP;
+			} else if (strcmp(val, "https") == 0) {
+				flag = TARGET_HTTPS;
+			} else if (strcmp(val, "insecure") == 0) {
+				flag = TARGET_INSECURE;
+			} else {
+				fprintf(stderr, "ERROR %s:%d: unknown proto '%s'\n", file, ln, val);
+				res++;
+			}
+		} else if (strcmp(key, "user") == 0) {
+			free(login);
+			login = strdup(val);
+		} else if (strcmp(key, "pw") == 0) {
+			free(pw);
+			pw = strdup(val);
+		} else if (strcmp(key, "port") == 0) {
+			errno = 0;
+			int i = atoi(val);
+			if (errno || i < 0 || i >= 65535) {
+				fprintf(stderr, "ERROR %s:%d: invalid port '%s'\n", file, ln, val);
+				res++;
+			} else {
+				port = i;
+			}
+		} else if (strcmp(key, "timeout") == 0) {
+			errno = 0;
+			int i = atoi(val);
+			if (errno || i <= 0 || i > 600) {
+				fprintf(stderr, "ERROR %s:%d: invalid timeout '%s' (expected 1..600)\n", file, ln, val);
+				res++;
+			} else {
+				timeout = i;
+			}
+		} else if (strcmp(key, "verbose") == 0) {
+			verbose = (strcmp(val, "true") == 0)
+				|| (strcmp(val, "1") == 0)
+				|| (strcmp(val, "on") == 0);
+		}
+	}
+	if (ferror(f))
+		res++;
+	free(line);
+	free(pw);
+	free(login);
+	fclose(f);
+	last = global.ncfg.ilom;
+	ln = 0;
+	while (last) {
+		if (last->verbose) {
+			flag = last->flags;
+			fprintf(stderr, "%03d: %s %s:%d  %s/%s\n", ln,
+				flag == TARGET_HTTP
+					? "http"
+					: flag == TARGET_HTTPS
+						? "https"
+						: "insecure",
+				last->host, last->port, last->login, last->pw);
+		}
+		last = last->next;
+		ln++;
+	}
+	return res;
+}
+
+static void
+release_ilom_opts(void) {
+	target_t *ilom = global.ncfg.ilom, *i;
+	global.ncfg.ilom = NULL;
+	while (ilom) {
+		free(ilom->host);
+		ilom->host = NULL;
+		curl_easy_cleanup(ilom->hdl);
+		ilom->hdl = NULL;
+		free(ilom->url);
+		ilom->url = NULL;
+		free(ilom->login);
+		ilom->login = NULL;
+		free(ilom->pw);
+		ilom->pw = NULL;
+		free(ilom->body);
+		ilom->body = NULL;
+		ilom->body_capacity = 0;
+		ilom->body_sz = 0;
+		free(ilom->token);
+		ilom->token = NULL;
+		i = ilom;
+		ilom = ilom->next;
+		free(i);
+	}
+}
 
 static int
 disableMetrics(char *skipList) {
@@ -132,11 +319,13 @@ static _Thread_local psb_t *sb = NULL;
 static prom_map_t *
 collect(prom_collector_t *self) {
 	bool compact = global.promflags & PROM_COMPACT;
+
 	PROM_DEBUG("collector: %p  sb: %p", self, sb);
 	if (global.versionInfo)
 		getVersions(sb, compact);
 	if (!global.ncfg.no_node) {
-		collect_node(sb, compact);
+		hrtime_t now = gethrtime();
+		collect_power(sb, compact, global.ncfg.ilom, now);
 	}
 	if (sb != NULL && !compact)
 		psb_add_char(sb, '\n');
@@ -151,7 +340,7 @@ getShortOpts(const struct option *opts) {
 
 	while (opts[len].name != NULL)
 		len++;
-	str = malloc(sizeof(char) * len  * 2 + 1);
+	str = malloc(sizeof(char) * len  * 2 + 2);
 	if (str == NULL)
 		return NULL;
 
@@ -481,6 +670,10 @@ main(int argc, char **argv) {
 			case 'h':
 				fprintf(stderr, "Usage: %s %s\n", argv[0], shortUsage);
 				return 0;
+			case 'i':
+				if (parse_ilom_opts(optarg) != 0)
+					err++;
+				break;
 			case 'l':
 				if (global.logfile != NULL)
 					free(global.logfile);
@@ -539,6 +732,15 @@ main(int argc, char **argv) {
 	if (err)
 		return SMF_EXIT_ERR_CONFIG;
 
+	if (global.ncfg.ilom == NULL) {
+		fprintf(stderr, "No ILOMs to query configured. Nothing to do - exiting.\n");
+		return SMF_EXIT_ERR_CONFIG;
+	}
+	if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
+		fprintf(stderr, "Unable to initialize libcurl - exiting.\n");
+		return SMF_EXIT_ERR_FATAL;
+	};
+
 	if (global.logfile != NULL) {
 		FILE *logfile = fopen(global.logfile, "a");
 		if (logfile != NULL)
@@ -553,8 +755,8 @@ main(int argc, char **argv) {
 	if (mode == 2)
 		pfd = daemonize();
 
-	start(&(global.ncfg), global.promflags & PROM_COMPACT, &n);
-	if (n == 0) {
+	start(global.promflags & PROM_COMPACT, &n);
+	if (n == 0 || global.ncfg.no_node) {
 		status = SMF_EXIT_TEMP_DISABLE;
 		if (mode == 2) {
 			(void) write(pfd, &status, sizeof (status));
@@ -602,5 +804,7 @@ main(int argc, char **argv) {
 	cleanupProm();
 	stop();
 	free(global.addr);
+	curl_global_cleanup();
+	release_ilom_opts();
 	return status;
 }

@@ -42,7 +42,7 @@
 	</dependent>
 
 	<exec_method type='method' name='start'
-		exec='/usr/sbin/ilomex %{config/start_args} -d -l %{config/logfile} -p %{config/port}'
+		exec='/usr/sbin/ilomex %{config/start_args} -i %{config/file} -d -l %{config/logfile} -p %{config/port}'
 		timeout_seconds='10'>
 		<method_context>
 			<!-- Who knows, why one needs sysconfig privs to be able to
@@ -60,14 +60,18 @@
 	<property_group name='config' type='application'>
 		<stability value='Evolving' />
 		<!-- Check operational state e.g. via http://localhost:9290/metrics -->
-		<propval name='port' type='integer' value='9100' />
+		<propval name='port' type='integer' value='9300' />
 		<propval name='logfile' type='astring' value='/var/log/ilomex.log' />
+		<propval name='file' type='astring' value='/etc/ilomex.conf' />
 		<!-- Any options to pass verbatim to the agent. E.g.
-			svccfg -s ilomex:default setprop 'config/start_args = ( "-cn" "version" "-ix" "-mx" "-tx" "-FTP:.*" "-zthis:nfs4,zfs" )'
+			svccfg -s ilomex:default setprop 'config/start_args = ( "-cn" "version" )'
+			svccfg -s ilomex:default setprop 'config/file = "/local/ilomex.conf" '
 		-->
 		<property name="start_args" type="astring">
 			<astring_list>
 				<value_node value='-c' />
+				<value_node value='-n' />
+				<value_node value='version' />
 			</astring_list>
 		</property>
 	</property_group>

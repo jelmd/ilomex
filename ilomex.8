@@ -19,15 +19,21 @@ ilomex \- a simple metrics exporter for old SUN ILOMs
 
 .SH "DESCRIPTION"
 .B ilomex
-is a \fBm\fRetrics \fBex\fRporter for the ILOM of old Sun Microsystem servers.
-Collected data can be exposed via HTTP in Prometheus exposition format [1]
-e.g. using the default endpoint URL
-\fBhttp://\fIhostname\fB:\fI9290\fB/metrics\fR
-and thus visualized e.g. using Grafana [2], Netdata [3], or Zabbix [4].
+is a \fBm\fRetrics \fBex\fRporter for data provided by the ILOM of
+older Sun Microsystems servers, such as the X4600 (SP Firmware 3.0.3.31 and
+possibly others). It is specifically designed to collect power usage and
+power supply (PSU) information — data that is only accessible via its WebUI,
+but not via IPMI, SNMP or other operating system utilities.
+The collected data can be exposed via HTTP in Prometheus exposition format [1]
+This allows metric collector and time series database tools like VictoriaMetrics
+and Prometheus to gather these metrics (e.g.,
+via \fBhttp://\fIhostname\fB:\fI9300\fB/metrics\fR). These databases can then
+be utilized to further process, reuse, or visualize the metrics using tools such
+as Grafana [2], Netdata [3], or Zabbix [4].
 
 \fBilomex\fR is written in plain C (having KISS in mind)
 and thus it is extremely lightweight, has beside libprom, libmicrohttp,
-libcurl and OS standard libs libc and libm no other dependencies, is more
+libcurl and OS standard libs libc no other dependencies, is more
 or less a standalone tool. It just queries the power configuration page
 of the ILOM web interface (\fB/iPages/i_powermgmt.asp\fR), extracts the
 curent, permitted and available power and provides them as metric export.
@@ -36,7 +42,11 @@ nor IPMI, nr any other documented API.
 
 Running \fBilomex\fR with root privileges should be safe, however,
 there is no need to do that, therefore running \fBilomex\fR as a normal,
-unprivileged user should be preferred.
+unprivileged user should be preferred. Similar an ILOM account with \fBRole\fR
+.nh
+\fBRead\ Only\ (o)\fR
+.hy
+should be used to login and retrieve the required data (see option -i...).
 
 
 \fBilomex\fR operates in 3 modes:
@@ -81,6 +91,13 @@ Statistics obtained from the ILOM.
 .B libprom
 All tasks together, i.e. sum of the default, process, and node task.
 .RE
+
+Note: Currently, ILOM queries are executed sequentially. This has the
+beneficial side effect of preventing an ILOM from being overwhelmed by
+too many requests. However, when collecting data from multiple ILOMs,
+a slow or unresponsive ILOM can significantly delay the overall response
+of this agent. In such cases, it is recommended to run a
+separate ilomex instance for each ILOM.
 
 .SH "OPTIONS"
 .P
@@ -147,6 +164,68 @@ Run \fBilomex\fR in \fBforeground\fR mode.
 .TP
 .B \-\-help
 Print a short help summary to the standard output and exit.
+
+.TP
+.BI \-i " file"
+.PD 0
+.TP
+.BI \-\-iloms= file
+Use \fIfile\fR to configure the ILOM queries. The file gets parsed
+line-by-line:
+
+.RS
+.IP - 2
+Everything after a '#' (including the '#' itself) is ignored.
+
+.IP -
+Empty lines or lines containing only whitespace are ignored.
+
+.IP -
+All other lines must contain a "\fBkey\fR: \fBvalue\fR" pair.
+
+.IP -
+Whitespace before and after the key and value is stripped.
+
+.IP -
+Each key defines a specific setting/property, which remains in effect
+until it is overridden by another line with the same key.
+Each \fBhost\fR key defines a new ILOM target, inheriting the current
+settings.
+Recognized keys are:
+
+.RS
+.TP 4
+.B proto
+The protocol used to communicate with the ILOM. Supported values
+are: \fBhttp\fR (the default), \fBhttps\fR, and \fBinsecure\fR.
+The latter implies HTTPS, but without verifying the ILOM's certificate.
+.TP 4
+.B host
+The IP address or hostname of the ILOM to query.
+.TP 4
+.B port
+The port used to connect to the ILOM. The default is 0, which
+means "auto" (80 for HTTP and 443 for HTTPS). Allowed range: 0–65535.
+.TP 4
+.B user
+The account used to log in to the ILOM. It should be a non-privileged
+account with read-only permissions.
+.TP 4
+.B pw
+The password used for ILOM login.
+.TP 4
+.B timeout
+Timeout in seconds (1–600, initial value: 10). If the ILOM does not
+respond within the specified time, the request is terminated, no data
+is returned, and data collection for the corresponding host is suspended
+for the next 5 minutes.
+.TP 4
+.B verbose
+If set to "true", "1", or "on", instructs liburl to print additional
+transfer-related information to stderr.
+.RE
+
+.RE
 
 .TP
 .BI \-l " file"
@@ -218,6 +297,19 @@ if an invalid option or option value got passed (config problem).
 .TP
 .B 100
 if the logfile is not writable or port access is not allowed (permission problem).
+
+.SH "EXAMPLES"
+.TP
+config file:
+.nf
+user: monitor
+pw: changeme
+#verbose: false
+host: foo-m
+\ 
+verbose: true
+host: bar-m
+.ni
 
 .SH "ENVIRONMENT"
 

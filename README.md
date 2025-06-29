@@ -1,11 +1,12 @@
 # ilomex
 
-ilomex is a *m*etrics *ex*porter for data provided by an ILOM of old Sun Microsystem servers. The collected data can optionally be exposed via HTTP in [Prometheuse exposition format](https://prometheus.io/docs/instrumenting/exposition_formats/). This allows metric collector and time series database tools like VictoriaMetrics and Prometheus to gather these metrics (e.g., via http://_hostname:9300_/metrics). These databases can then be utilized to further process, reuse, or visualize the metrics using tools such as [Grafana](https://grafana.com/).
+ilomex is a *m*etrics *ex*porter for data provided by the ILOM of older Sun Microsystems servers, such as the X4600 (SP Firmware 3.0.3.31 and possibly others). It is specifically designed to collect power usage and power supply (PSU) information — data that is only accessible via its WebUI, but not via IPMI, SNMP or other operating system utilities. The collected data can optionally be exposed via HTTP in [Prometheuse exposition format](https://prometheus.io/docs/instrumenting/exposition_formats/). This allows metric collector and time series database tools like VictoriaMetrics and Prometheus to gather these metrics (e.g., via http://_hostname:9300_/metrics). These databases can then be utilized to further process, reuse, or visualize the metrics using tools such as [Grafana](https://grafana.com/).
 
 
 ## KISS
 
 Efficiency, size, and simplicity are key objectives of ilomex. Consequently, aside from using [libprom](https://github.com/jelmd/libprom) for handling certain Prometheus (PROM) functionality and [libmicrohttpd](https://github.com/Karlson2k/libmicrohttpd) for providing HTTP access, and [libcurl](https://curl.se/libcurl/) for HTTP client support, no additional third-party libraries or tools are utilized. The core idea is to operate *ilomex* as a local service on the machine being monitored, while leveraging existing OS tools and services, such as firewalls, HTTP proxies, and VictoriaMetrics vmagent to control access to the exposed data. This approach complements the exporters, which are primarily specialized in collecting and simply exporting metrics, by providing the desired level of security and access control.
+
 
 ## Examples
 
@@ -43,6 +44,6 @@ issue there using https://github.com/jelmd/ilomex/issues .
 
 ## Packages
 
-Solaris packages for libprom and ilomex can be found via https://pkg.cs.ovgu.de/LNF/i386/5.11 (search for LNFlibprom and LNFilomex). libmicrohttpd gets provided by Solaris itself, so using the vendor package is recommended (library/libmicrohttpd). Related header sources files get installed, if the develop facet is set to true.
+Solaris packages for libprom and ilomex can be found via https://pkg.cs.ovgu.de/LNF/i386/5.11 (search for LNFlibprom and LNFilomex). libmicrohttpd and libcurl are provided by Solaris itself, so using the vendor package is recommended (library/libmicrohttpd and web/curl). Related header sources files get installed, if the develop facet is set to true.
 
 Ubuntu packages for libprom and ilomex can be found via https://pkg.cs.ovgu.de/LNF/linux/ubuntu/focal/ (search for libprom-\*.deb and ilomex-\*.deb). The microhttpd and curl libs are provided by Ubuntu via the packages libmicrohttpd12, libmicrohttpd-dev, libcurl4 and libcurl4-openssl-dev).

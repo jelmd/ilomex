@@ -10,6 +10,8 @@
  */
 #include <unistd.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <assert.h>
 
 #include <prom.h>
 
@@ -23,17 +25,15 @@ static uint8_t started = 0;
 static char *versionProm = NULL;	// version string emitted via /metrics
 static char *versionHR = NULL;		// version string emitted to stdout/stderr
 
+
 void
-start(node_cfg_t *cfg, bool compact, uint32_t *tasks) {
+start(bool compact, uint32_t *tasks) {
 	*tasks = 0;
 	if (started)
 		return;
 
-	if (cfg->no_node)
-		return;
-
 	if (!compact)
-		PROM_INFO("node stack initialized (%d)", *tasks);
+		PROM_INFO("ilo stack initialized (%d)", *tasks);
 	(*tasks)++;
 
 	started = 1;

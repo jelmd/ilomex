@@ -17,6 +17,7 @@ LIBDIR ?= lib
 
 ISSUES_URL = https://github.com/jelmd/ilomex/issues
 #DEBUG_FLAGS = -DDEBUG_NODE_$STATNAME
+#SANITIZE ?= -g -fsanitize=address
 
 OS := $(shell uname -s)
 MACH ?= 64
@@ -48,7 +49,9 @@ CFLAGS_gcc = -fPIC -fsigned-char -pipe -Wno-unknown-pragmas -Wno-unused-result
 CFLAGS_gcc += -fdiagnostics-show-option -Wall -Werror
 CFLAGS_gcc += -pedantic -Wpointer-arith -Wwrite-strings -Wstrict-prototypes -Wnested-externs -Winline -Wextra -Wdisabled-optimization -Wformat=2 -Winit-self -Wlogical-op -Wmissing-include-dirs -Wredundant-decls -Wshadow -Wundef -Wunused -Wno-variadic-macros -Wno-parentheses -Wcast-align -Wcast-qual
 CFLAGS_gcc += -Wno-unused-function -Wno-multistatement-macros
+CFLAGS_gcc += $(SANITIZE)
 
+CFLAGS_Linux = -D_GNU_SOURCE
 CFLAGS_SunOS = -I/usr/include/microhttpd -D_MHD_DEPR_MACRO -D__EXTENSIONS__
 CFLAGS_libprom ?= $(shell [ -d /usr/include/libprom ] && printf -- '-I/usr/include/libprom' )
 #CFLAGS_libprom += $(shell [ -d ../libprom/prom/include ] && printf -- '-I../libprom/prom/include' )
@@ -67,6 +70,7 @@ SHARED_cc := -G
 SHARED_gcc := -shared
 LDFLAGS_cc := -zdefs -Bdirect -zdiscard-unused=dependencies $(LIBS)
 LDFLAGS_gcc := -zdefs -Wl,--as-needed $(LIBS)
+LDFLAGS_gcc += $(SANITIZE)
 SONAME_OPT_cc := -h
 SONAME_OPT_gcc := -Wl,-soname,
 RPATH_OPT_cc := -R
@@ -84,7 +88,7 @@ PROGS= ilomex
 PROGSRCS = $(LIBSRCS)
 PROGOBJS = $(PROGSRCS:%.c=%.o)
 
-MEXOBJS = init.o prom_node.o main.o
+MEXOBJS = common.o init.o prom_node.o main.o
 
 all:	$(PROGS)
 

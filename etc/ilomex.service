@@ -1,0 +1,32 @@
+# Copy to /lib/systemd/system/ilomex.service and 'systemctl daemon-reload' and
+# finally 'systemctl start ilomex'.
+[Unit]
+Description=Metrics exporter for ILOMs
+Documentation=man:ilomex(8)
+After=network.target local-fs.target auditd.service
+Before=vmagent.service
+
+[Service]
+Type=forking
+# No special privileges are required. So use an unprivileged user:
+User=daemon
+Group=daemon
+
+Environment='CFG=/etc/ilomex.conf'
+Environment='ARGS=-c -n version'
+EnvironmentFile=-/etc/default/ilomex
+
+LogsDirectory=ilomex
+
+Restart=always
+RestartSec=1
+RestartPreventExitStatus=1 95 96 97 98 99 100 101 102
+ExecStart=/usr/sbin/ilomex -l %L/ilomex/ilomex.log -d -i $CFG $ARGS
+ExecStop=/bin/kill -s SIGTERM $MAINPID
+TimeoutSec=3
+
+MemoryLow=4M
+MemoryMin=2M
+
+[Install]
+WantedBy=multi-user.target
